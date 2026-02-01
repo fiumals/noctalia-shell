@@ -1,8 +1,8 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import "../../../../Helpers/FuzzySort.js" as Fuzzysort
 import qs.Commons
+import qs.Services.System
 
 Item {
   id: root
@@ -11,10 +11,13 @@ Item {
   property string name: I18n.tr("launcher.providers.applications")
   property bool handleSearch: true
   property var entries: []
+  property string supportedLayouts: "both"
+  property bool isDefaultProvider: true // This provider handles empty search
+  property int preferredGridColumns: 5
 
   // Category support
   property string selectedCategory: "all"
-  property bool isBrowsingMode: false
+  property bool showsCategories: true // Default to showing categories
   property var categories: ["all", "Pinned", "AudioVideo", "Chat", "Development", "Education", "Game", "Graphics", "Network", "Office", "System", "Misc", "WebBrowser"]
   property var availableCategories: ["all"] // Reactive property for available categories
 
@@ -46,7 +49,7 @@ Item {
       "Education": I18n.tr("launcher.categories.education"),
       "Game": I18n.tr("launcher.categories.game"),
       "Graphics": I18n.tr("launcher.categories.graphics"),
-      "Network": I18n.tr("launcher.categories.network"),
+      "Network": I18n.tr("common.network"),
       "Office": I18n.tr("launcher.categories.office"),
       "System": I18n.tr("launcher.categories.system"),
       "Misc": I18n.tr("launcher.categories.misc"),
@@ -94,10 +97,14 @@ Item {
   function onOpened() {
     // Refresh apps when launcher opens
     loadApplications();
-    // Reset to "all" category when opening
-    selectedCategory = "all";
-    // Set browsing mode initially (will be updated when getResults is called)
-    isBrowsingMode = true;
+    // Default to Pinned if there are pinned apps, otherwise all
+    if (availableCategories.includes("Pinned")) {
+      selectedCategory = "Pinned";
+    } else {
+      selectedCategory = "all";
+    }
+    // Set category mode initially (will be updated when getResults is called)
+    showsCategories = true;
   }
 
   function selectCategory(category) {
@@ -213,7 +220,7 @@ Item {
   function isAppPinned(app) {
     if (!app)
       return false;
-    const pinnedApps = Settings.data.dock.pinnedApps || [];
+    const pinnedApps = Settings.data.appLauncher.pinnedApps || [];
     const appId = getAppKey(app);
     const normalizedId = normalizeAppId(appId);
     return pinnedApps.some(pinnedId => normalizeAppId(pinnedId) === normalizedId);
@@ -268,7 +275,7 @@ Item {
     let hasPinned = false;
 
     // Check if there are any pinned apps
-    const pinnedApps = Settings.data.dock.pinnedApps || [];
+    const pinnedApps = Settings.data.appLauncher.pinnedApps || [];
     if (pinnedApps.length > 0) {
       // Verify that at least one pinned app exists in entries
       for (let app of entries) {
@@ -294,12 +301,14 @@ Item {
       }
     }
 
-    const result = ["all"];
+    const result = [];
 
     // Add Pinned category first if there are pinned apps
     if (hasPinned) {
       result.push("Pinned");
     }
+
+    result.push("all");
 
     if (hasAudioVideo) {
       categorySet.add("AudioVideo");
@@ -380,7 +389,7 @@ Item {
   }
 
   Connections {
-    target: Settings.data.dock
+    target: Settings.data.appLauncher
     function onPinnedAppsChanged() {
       const wasViewingPinned = selectedCategory === "Pinned";
       updateAvailableCategories();
@@ -433,12 +442,13 @@ Item {
     if (!entries || entries.length === 0)
       return [];
 
-    // Set browsing mode based on whether there's a query
-    isBrowsingMode = !query || query.trim() === "";
+    // Set category mode based on whether there's a query
+    const isSearching = !!(query && query.trim() !== "");
+    showsCategories = !isSearching;
 
-    // Filter by category first
+    // Filter by category only when NOT searching
     let filteredEntries = entries;
-    if (selectedCategory && selectedCategory !== "all") {
+    if (!isSearching && selectedCategory && selectedCategory !== "all") {
       filteredEntries = entries.filter(app => appMatchesCategory(app, selectedCategory));
     }
 
@@ -472,10 +482,9 @@ Item {
     }
 
     // Use fuzzy search if available, fallback to simple search
-    if (typeof Fuzzysort !== 'undefined') {
-      const fuzzyResults = Fuzzysort.go(query, filteredEntries, {
+    if (typeof FuzzySort !== 'undefined') {
+      const fuzzyResults = FuzzySort.go(query, filteredEntries, {
                                           "keys": ["name", "comment", "genericName", "executableName"],
-                                          "threshold": -1000,
                                           "limit": 20
                                         });
 
@@ -490,7 +499,7 @@ Item {
         else
           nonFav.push(r);
       }
-      return fav.concat(nonFav).map(result => createResultEntry(result.obj));
+      return fav.concat(nonFav).map(result => createResultEntry(result.obj, result.score));
     } else {
       // Fallback to simple search
       const searchTerm = query.toLowerCase();
@@ -528,13 +537,15 @@ Item {
     }
   }
 
-  function createResultEntry(app) {
+  function createResultEntry(app, score) {
     return {
       "appId": getAppKey(app),
       "name": app.name || "Unknown",
       "description": app.genericName || app.comment || "",
       "icon": app.icon || "application-x-executable",
       "isImage": false,
+      "_score": (score !== undefined ? score : 0),
+      "provider": root,
       "onActivate": function () {
         // Close the launcher/SmartPanel immediately without any animations.
         // Ensures we are not preventing the future focusing of the app
@@ -560,7 +571,7 @@ Item {
                            const command = prefix.concat(app.command);
                            Quickshell.execDetached(command);
                          }
-                       } else if (Settings.data.appLauncher.useApp2Unit && app.id) {
+                       } else if (Settings.data.appLauncher.useApp2Unit && ProgramCheckerService.app2unitAvailable && app.id) {
                          Logger.d("ApplicationsProvider", `Using app2unit for: ${app.id}`);
                          if (app.runInTerminal)
                          Quickshell.execDetached(["app2unit", "--", app.id + ".desktop"]);
@@ -585,6 +596,39 @@ Item {
                      });
       }
     };
+  }
+
+  // -------------------------
+  // Item actions for launcher delegate
+  function getItemActions(item) {
+    if (!item || !item.appId)
+      return [];
+    return [
+          {
+            "icon": isAppPinned({
+                                  "id": item.appId
+                                }) ? "unpin" : "pin",
+            "tooltip": isAppPinned({
+                                     "id": item.appId
+                                   }) ? I18n.tr("common.unpin") : I18n.tr("common.pin"),
+            "action": function () {
+              togglePin(item.appId);
+            }
+          }
+        ];
+  }
+
+  function togglePin(appId) {
+    if (!appId)
+      return;
+    const normalizedId = normalizeAppId(appId);
+    let arr = (Settings.data.appLauncher.pinnedApps || []).slice();
+    const idx = arr.findIndex(pinnedId => normalizeAppId(pinnedId) === normalizedId);
+    if (idx >= 0)
+      arr.splice(idx, 1);
+    else
+      arr.push(appId);
+    Settings.data.appLauncher.pinnedApps = arr;
   }
 
   // -------------------------

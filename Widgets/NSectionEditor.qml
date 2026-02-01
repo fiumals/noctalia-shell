@@ -37,7 +37,18 @@ NBox {
   }
 
   property var widgetRegistry: null
-  property string settingsDialogComponent: "BarWidgetSettingsDialog.qml"
+  property string settingsDialogComponent: "invalid-settings-dialog"
+  property var screen: null // Screen reference for per-screen widget settings
+  property var _activeDialog: null
+
+  Component.onDestruction: {
+    if (_activeDialog && _activeDialog.close) {
+      var dialog = _activeDialog;
+      _activeDialog = null;
+      dialog.close();
+      dialog.destroy();
+    }
+  }
 
   readonly property int gridColumns: 3
   readonly property real miniButtonSize: Style.baseWidgetSize * 0.65
@@ -54,6 +65,7 @@ NBox {
   signal openPluginSettingsRequested(var pluginManifest)
 
   color: Color.mSurface
+  opacity: enabled ? 1.0 : 0.6
   Layout.fillWidth: true
 
   // Calculate width to fit gridColumns widgets with spacing
@@ -99,13 +111,8 @@ NBox {
     return [Color.mPrimary, Color.mOnPrimary];
   }
 
-  // Check if widget has settings (either core widget with allowUserSettings or plugin with settings entry point)
+  // Check if widget has settings (either core widget with metadata or plugin with settings entry point)
   function widgetHasSettings(widgetId) {
-    // Check if it's a core widget with user settings
-    if (root.widgetRegistry && root.widgetRegistry.widgetHasUserSettings(widgetId)) {
-      return true;
-    }
-
     // Check if it's a plugin with settings
     if (root.widgetRegistry && root.widgetRegistry.isPluginWidget(widgetId)) {
       var pluginId = widgetId.replace("plugin:", "");
@@ -113,7 +120,81 @@ NBox {
       return manifest?.entryPoints?.settings !== undefined;
     }
 
+    // Check if it's a core widget with user settings
+    if (root.widgetRegistry && root.widgetRegistry.widgetHasUserSettings(widgetId)) {
+      return true;
+    }
+
     return false;
+  }
+
+  // Open settings for a widget
+  function openWidgetSettings(index, widgetData) {
+    // Check if this is a plugin widget
+    var isPlugin = root.widgetRegistry && root.widgetRegistry.isPluginWidget(widgetData.id);
+
+    if (isPlugin) {
+      // Handle plugin settings - emit signal for parent to handle
+      var pluginId = widgetData.id.replace("plugin:", "");
+      var manifest = PluginRegistry.getPluginManifest(pluginId);
+
+      if (!manifest || !manifest.entryPoints?.settings) {
+        Logger.e("NSectionEditor", "Plugin settings not found for:", pluginId);
+        return;
+      }
+
+      // Emit signal to request opening plugin settings
+      root.openPluginSettingsRequested(manifest);
+    } else {
+      // Handle core widget settings
+      var component = Qt.createComponent(Qt.resolvedUrl(root.settingsDialogComponent));
+
+      function instantiateAndOpen() {
+        if (root._activeDialog) {
+          try {
+            root._activeDialog.close();
+            root._activeDialog.destroy();
+          } catch (e) {}
+          root._activeDialog = null;
+        }
+
+        var dialog = component.createObject(Overlay.overlay, {
+                                              "widgetIndex": index,
+                                              "widgetData": widgetData,
+                                              "widgetId": widgetData.id,
+                                              "sectionId": root.sectionId,
+                                              "screen": root.screen
+                                            });
+
+        if (dialog) {
+          root._activeDialog = dialog;
+          dialog.updateWidgetSettings.connect(root.updateWidgetSettings);
+          dialog.closed.connect(() => {
+                                  if (root._activeDialog === dialog) {
+                                    root._activeDialog = null;
+                                    dialog.destroy();
+                                  }
+                                });
+          dialog.open();
+        } else {
+          Logger.e("NSectionEditor", "Failed to create settings dialog instance");
+        }
+      }
+
+      if (component.status === Component.Ready) {
+        instantiateAndOpen();
+      } else if (component.status === Component.Error) {
+        Logger.e("NSectionEditor", component.errorString());
+      } else {
+        component.statusChanged.connect(function () {
+          if (component.status === Component.Ready) {
+            instantiateAndOpen();
+          } else if (component.status === Component.Error) {
+            Logger.e("NSectionEditor", component.errorString());
+          }
+        });
+      }
+    }
   }
 
   ColumnLayout {
@@ -182,8 +263,8 @@ NBox {
         model: availableWidgets ?? null
         label: ""
         description: ""
-        placeholder: I18n.tr("bar.widget-settings.section-editor.placeholder")
-        searchPlaceholder: I18n.tr("bar.widget-settings.section-editor.search-placeholder")
+        placeholder: I18n.tr("bar.section-editor.placeholder")
+        searchPlaceholder: I18n.tr("bar.section-editor.search-placeholder")
         onSelected: key => comboBox.currentKey = key
         popupHeight: 300 * Style.uiScaleRatio
         minimumWidth: 200 * Style.uiScaleRatio
@@ -306,11 +387,16 @@ NBox {
                   var section = root.availableSections[i];
                   if (section !== root.sectionId) {
                     var label = root.getSectionLabel(section);
-                    // Capitalize first letter
-                    var capitalizedLabel = label.charAt(0).toUpperCase() + label.slice(1);
+                    var displayLabel = '';
+                    if (I18n.hasTranslation("positions." + section)) {
+                      displayLabel = I18n.tr("positions." + section);
+                    } else {
+                      displayLabel = label.charAt(0).toUpperCase() + label.slice(1);
+                    }
+
                     items.push({
                                  "label": I18n.tr("tooltips.move-to-section", {
-                                                    "section": capitalizedLabel
+                                                    "section": displayLabel
                                                   }),
                                  "action": section,
                                  "icon": root.getSectionIcon(section),
@@ -405,10 +491,10 @@ NBox {
                 Layout.preferredHeight: parent.height
 
                 Loader {
-                  active: root.widgetHasSettings(modelData.id)
+                  active: root.widgetHasSettings(modelData.id) && root.enabled
                   sourceComponent: NIconButton {
                     icon: "settings"
-                    tooltipText: I18n.tr("tooltips.widget-settings")
+                    tooltipText: I18n.tr("actions.widget-settings")
                     baseSize: miniButtonSize
                     colorBorder: Qt.alpha(Color.mOutline, Style.opacityLight)
                     colorBg: Color.mOnSurface
@@ -416,52 +502,7 @@ NBox {
                     colorBgHover: Qt.alpha(Color.mOnPrimary, Style.opacityLight)
                     colorFgHover: Color.mOnPrimary
                     onClicked: {
-                      // Check if this is a plugin widget
-                      var isPlugin = root.widgetRegistry && root.widgetRegistry.isPluginWidget(modelData.id);
-
-                      if (isPlugin) {
-                        // Handle plugin settings - emit signal for parent to handle
-                        var pluginId = modelData.id.replace("plugin:", "");
-                        var manifest = PluginRegistry.getPluginManifest(pluginId);
-
-                        if (!manifest || !manifest.entryPoints?.settings) {
-                          Logger.e("NSectionEditor", "Plugin settings not found for:", pluginId);
-                          return;
-                        }
-
-                        // Emit signal to request opening plugin settings
-                        root.openPluginSettingsRequested(manifest);
-                      } else {
-                        // Handle core widget settings
-                        var component = Qt.createComponent(Qt.resolvedUrl(root.settingsDialogComponent));
-                        function instantiateAndOpen() {
-                          var dialog = component.createObject(Overlay.overlay, {
-                                                                "widgetIndex": index,
-                                                                "widgetData": modelData,
-                                                                "widgetId": modelData.id,
-                                                                "sectionId": root.sectionId
-                                                              });
-                          if (dialog) {
-                            dialog.updateWidgetSettings.connect(root.updateWidgetSettings);
-                            dialog.open();
-                          } else {
-                            Logger.e("NSectionEditor", "Failed to create settings dialog instance");
-                          }
-                        }
-                        if (component.status === Component.Ready) {
-                          instantiateAndOpen();
-                        } else if (component.status === Component.Error) {
-                          Logger.e("NSectionEditor", component.errorString());
-                        } else {
-                          component.statusChanged.connect(function () {
-                            if (component.status === Component.Ready) {
-                              instantiateAndOpen();
-                            } else if (component.status === Component.Error) {
-                              Logger.e("NSectionEditor", component.errorString());
-                            }
-                          });
-                        }
-                      }
+                      root.openWidgetSettings(index, modelData);
                     }
                   }
                 }
@@ -477,7 +518,7 @@ NBox {
         width: 0
         height: Style.baseWidgetSize * 1.15
         radius: Style.iRadiusL
-        color: Color.transparent
+        color: "transparent"
         border.color: Color.mOutline
         border.width: Style.borderS
         opacity: 0.7

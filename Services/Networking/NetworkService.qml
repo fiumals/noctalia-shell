@@ -17,6 +17,8 @@ Singleton {
   property string connectingTo: ""
   property string lastError: ""
   property bool ethernetConnected: false
+  // Each item: { ifname: string, state: string, connected: bool }
+  property var ethernetInterfaces: ([])
   // Active Ethernet connection details
   property var activeEthernetDetails: ({})
   property string activeEthernetIf: ""
@@ -67,14 +69,14 @@ Singleton {
     function onWifiEnabledChanged() {
       if (Settings.data.network.wifiEnabled) {
         if (!BluetoothService.airplaneModeToggled) {
-          ToastService.showNotice(I18n.tr("wifi.panel.title"), I18n.tr("toast.wifi.enabled"), "wifi");
+          ToastService.showNotice(I18n.tr("wifi.panel.title"), I18n.tr("common.enabled"), "wifi");
         }
         // Perform a scan to update the UI
         delayedScanTimer.interval = 3000;
         delayedScanTimer.restart();
       } else {
         if (!BluetoothService.airplaneModeToggled) {
-          ToastService.showNotice(I18n.tr("wifi.panel.title"), I18n.tr("toast.wifi.disabled"), "wifi-off");
+          ToastService.showNotice(I18n.tr("wifi.panel.title"), I18n.tr("common.disabled"), "wifi-off");
         }
         // Clear networks so the widget icon changes
         root.networks = ({});
@@ -159,9 +161,10 @@ Singleton {
     if (ethernetDetailsLoading)
       return;
     if (!root.ethernetConnected) {
-      // Clear details when not connected
-      root.activeEthernetIf = "";
+      // Link is down: keep the selected interface so UI can still show its info as disconnected
+      // Only clear details to avoid showing stale IP/speed/etc.
       root.activeEthernetDetails = ({});
+      root.activeEthernetDetailsTimestamp = now;
       return;
     }
     // If we have fresh details for the same iface, skip
@@ -214,6 +217,19 @@ Singleton {
     // Get existing profiles first, then scan
     profileCheckProcess.running = true;
     Logger.d("Network", "Wi-Fi scan in progress...");
+  }
+
+  // Returns true if we currently have any detectable Ethernet interfaces
+  function hasEthernet() {
+    return root.ethernetInterfaces && root.ethernetInterfaces.length > 0;
+  }
+
+  // Refresh only Ethernet state/details
+  function refreshEthernet() {
+    if (!ProgramCheckerService.nmcliAvailable)
+      return;
+    ethernetStateProcess.running = true;
+    refreshActiveEthernetDetails();
   }
 
   function connect(ssid, password = "") {
@@ -342,14 +358,32 @@ Singleton {
         var connected = false;
         var devIf = "";
         var lines = text.split("\n");
+        var ethList = [];
         for (var i = 0; i < lines.length; i++) {
           var parts = lines[i].split(":");
-          if (parts.length >= 3 && parts[1] === "ethernet" && parts[2] === "connected") {
-            connected = true;
-            devIf = parts[0];
-            break;
+          if (parts.length >= 3 && parts[1] === "ethernet") {
+            var ifname = parts[0];
+            var state = parts[2];
+            var isConn = state === "connected";
+            ethList.push({
+                           ifname: ifname,
+                           state: state,
+                           connected: isConn
+                         });
+            if (isConn && !connected) {
+              connected = true;
+              devIf = ifname;
+            }
           }
         }
+        // Sort interfaces: connected first, then by name
+        ethList.sort(function (a, b) {
+          if (a.connected !== b.connected)
+            return a.connected ? -1 : 1;
+          return a.ifname.localeCompare(b.ifname);
+        });
+        root.ethernetInterfaces = ethList;
+
         if (root.ethernetConnected !== connected) {
           root.ethernetConnected = connected;
           Logger.d("Network", "Ethernet connected:", root.ethernetConnected);
@@ -362,8 +396,9 @@ Singleton {
           }
           root.refreshActiveEthernetDetails();
         } else {
-          root.activeEthernetIf = "";
+          // Preserve the selected interface; just clear details so UI shows a disconnected state
           root.activeEthernetDetails = ({});
+          root.activeEthernetDetailsTimestamp = Date.now();
         }
       }
     }
@@ -386,6 +421,7 @@ Singleton {
       onStreamFinished: {
         let ifname = "";
         const lines = text.split("\n");
+        const ethList = [];
         for (let i = 0; i < lines.length; i++) {
           const parts = lines[i].trim().split(":");
           if (parts.length >= 3) {
@@ -394,12 +430,25 @@ Singleton {
             const state = parts[2];
             if (type === "ethernet" && state === "connected") {
               ifname = dev;
-              break;
+            }
+            if (type === "ethernet") {
+              ethList.push({
+                             ifname: dev,
+                             state: state,
+                             connected: state === "connected"
+                           });
             }
           }
         }
-        root.activeEthernetIf = ifname;
+        ethList.sort(function (a, b) {
+          if (a.connected !== b.connected)
+            return a.connected ? -1 : 1;
+          return a.ifname.localeCompare(b.ifname);
+        });
+        root.ethernetInterfaces = ethList;
         if (ifname) {
+          if (root.activeEthernetIf !== ifname)
+          root.activeEthernetIf = ifname;
           ethernetDeviceShowProcess.ifname = ifname;
           ethernetDeviceShowProcess.running = true;
         } else {
@@ -792,7 +841,7 @@ Singleton {
 
     stdout: StdioCollector {
       onStreamFinished: {
-        Logger.i("Network", "Wi-Fi state change command executed.");
+        Logger.i("Network", "Wi-Fi state change command executed");
         // Re-check the state to ensure it's in sync
         syncWifiState();
       }
@@ -821,31 +870,25 @@ Singleton {
         if (!result) {
           return;
         }
-
-        if (result === "none" && root.networkConnectivity !== result) {
-          root.networkConnectivity = result;
-          connectivityCheckProcess.failedChecks = 0;
-          root.scan();
+        if (result === "full" || result === "none" || result === "unknown") {
+          if (connectivityCheckProcess.failedChecks !== 0) {
+            connectivityCheckProcess.failedChecks = 0;
+          }
+          if (result !== root.networkConnectivity) {
+            if (result === "full") {
+              root.internetConnectivity = true;
+            }
+            root.networkConnectivity = result;
+            root.scan();
+          }
+          return;
         }
-
-        if (result === "full" && root.networkConnectivity !== result) {
-          root.networkConnectivity = result;
-          root.internetConnectivity = true;
-          connectivityCheckProcess.failedChecks = 0;
-          root.scan();
-        }
-
-        if ((result === "limited" || result === "portal") && root.networkConnectivity !== result) {
+        if ((result === "limited" || result === "portal") && result !== root.networkConnectivity) {
           connectivityCheckProcess.failedChecks++;
           if (connectivityCheckProcess.failedChecks === 3) {
             root.networkConnectivity = result;
             pingCheckProcess.running = true;
           }
-        }
-
-        if (result === "unknown" && root.networkConnectivity !== result) {
-          root.networkConnectivity = result;
-          connectivityCheckProcess.failedChecks = 0;
         }
       }
     }
@@ -869,7 +912,7 @@ Singleton {
       } else {
         root.internetConnectivity = false;
         Logger.i("Network", "No internet connectivity");
-        ToastService.showWarning(root.cachedLastConnected, I18n.tr("toast.internet.limited"));
+        ToastService.showWarning(root.cachedLastConnected, I18n.tr("toast.internet-limited"));
         connectivityCheckProcess.failedChecks = 0;
       }
       root.scan();
@@ -982,7 +1025,12 @@ Singleton {
             continue;
           }
 
-          const security = remainingLine2.substring(thirdLastColonIdx + 1);
+          let security = remainingLine2.substring(thirdLastColonIdx + 1);
+          // This change will add a slash where mixed security protocols are used.
+          if (security) {
+            security = security.replace("WPA2 WPA3", "WPA2/WPA3").replace("WPA1 WPA2", "WPA1/WPA2");
+          }
+
           const ssid = remainingLine2.substring(0, thirdLastColonIdx);
 
           if (ssid) {

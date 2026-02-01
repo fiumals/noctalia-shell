@@ -26,7 +26,7 @@ in
   config = lib.mkIf cfg.enable {
     systemd.user.services.noctalia-shell = {
       description = "Noctalia Shell - Wayland desktop shell";
-      documentation = [ "https://docs.noctalia.dev/docs" ];
+      documentation = [ "https://docs.noctalia.dev" ];
       after = [ cfg.target ];
       partOf = [ cfg.target ];
       wantedBy = [ cfg.target ];
@@ -39,9 +39,6 @@ in
       serviceConfig = {
         ExecStart = lib.getExe cfg.package;
         Restart = "on-failure";
-        Environment = [
-          "NOCTALIA_SETTINGS_FALLBACK=%h/.config/noctalia/gui-settings.json"
-        ];
       };
     };
 

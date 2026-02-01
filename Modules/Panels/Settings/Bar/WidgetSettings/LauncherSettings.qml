@@ -13,6 +13,8 @@ ColumnLayout {
   property var widgetData: null
   property var widgetMetadata: null
 
+  signal settingsChanged(var settings)
+
   // Local state
   property bool valueUsePrimaryColor: widgetData.usePrimaryColor !== undefined ? widgetData.usePrimaryColor : (widgetMetadata ? widgetMetadata.usePrimaryColor : false)
 
@@ -23,9 +25,12 @@ ColumnLayout {
   }
 
   NToggle {
-    label: I18n.tr("bar.widget-settings.launcher.use-primary-color.label")
-    description: I18n.tr("bar.widget-settings.launcher.use-primary-color.description")
+    label: I18n.tr("bar.clock.use-primary-color-label")
+    description: I18n.tr("bar.clock.use-primary-color-description")
     checked: valueUsePrimaryColor
-    onToggled: checked => valueUsePrimaryColor = checked
+    onToggled: checked => {
+                 valueUsePrimaryColor = checked;
+                 settingsChanged(saveSettings());
+               }
   }
 }

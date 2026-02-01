@@ -15,6 +15,15 @@ SmartPanel {
   preferredWidth: Math.round(440 * Style.uiScaleRatio)
   preferredHeight: Math.round(420 * Style.uiScaleRatio)
 
+  onOpened: {
+    // Refresh DDC brightness from monitors (one-time on panel open)
+    BrightnessService.monitors.forEach(m => {
+                                         if (m.isDdc) {
+                                           m.refreshBrightnessFromSystem();
+                                         }
+                                       });
+  }
+
   panelContent: Item {
     id: panelContent
     property real contentPreferredHeight: mainColumn.implicitHeight + Style.marginL * 2
@@ -32,7 +41,7 @@ SmartPanel {
       // HEADER
       NBox {
         Layout.fillWidth: true
-        implicitHeight: headerRow.implicitHeight + (Style.marginM * 2)
+        implicitHeight: headerRow.implicitHeight + (Style.marginXL)
 
         RowLayout {
           id: headerRow
@@ -47,7 +56,7 @@ SmartPanel {
           }
 
           NText {
-            text: I18n.tr("settings.display.title")
+            text: I18n.tr("panels.display.title")
             pointSize: Style.fontSizeL
             font.weight: Style.fontWeightBold
             color: Color.mOnSurface
@@ -56,7 +65,7 @@ SmartPanel {
 
           NIconButton {
             icon: "close"
-            tooltipText: I18n.tr("tooltips.close")
+            tooltipText: I18n.tr("common.close")
             baseSize: Style.baseWidgetSize * 0.8
             onClicked: {
               root.close();
@@ -66,23 +75,25 @@ SmartPanel {
       }
 
       NScrollView {
+        id: brightnessScrollView
         Layout.fillWidth: true
         Layout.fillHeight: true
         horizontalPolicy: ScrollBar.AlwaysOff
         verticalPolicy: ScrollBar.AsNeeded
-        clip: true
         contentWidth: availableWidth
+        reserveScrollbarSpace: false
+        gradientColor: Color.mSurface
 
         // AudioService Devices
         ColumnLayout {
           spacing: Style.marginM
-          width: parent.width
+          width: brightnessScrollView.availableWidth
 
           Repeater {
             model: Quickshell.screens || []
             delegate: NBox {
               Layout.fillWidth: true
-              Layout.preferredHeight: outputColumn.implicitHeight + (Style.marginM * 2)
+              Layout.preferredHeight: outputColumn.implicitHeight + (Style.marginXL)
 
               property var brightnessMonitor: BrightnessService.getMonitorForScreen(modelData)
 

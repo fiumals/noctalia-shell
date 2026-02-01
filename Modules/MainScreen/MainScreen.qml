@@ -18,6 +18,8 @@ import qs.Modules.Panels.Changelog
 import qs.Modules.Panels.Clock
 import qs.Modules.Panels.ControlCenter
 import qs.Modules.Panels.Launcher
+import qs.Modules.Panels.Media
+import qs.Modules.Panels.Network
 import qs.Modules.Panels.NotificationHistory
 import qs.Modules.Panels.Plugins
 import qs.Modules.Panels.SessionMenu
@@ -26,7 +28,6 @@ import qs.Modules.Panels.SetupWizard
 import qs.Modules.Panels.SystemStats
 import qs.Modules.Panels.Tray
 import qs.Modules.Panels.Wallpaper
-import qs.Modules.Panels.WiFi
 import qs.Services.Compositor
 import qs.Services.UI
 
@@ -81,7 +82,7 @@ PanelWindow {
     if (dimmerOpacity > 0 && isPanelOpen && !isPanelClosing) {
       return Qt.alpha(Color.mShadow, dimmerOpacity);
     }
-    return Color.transparent;
+    return "transparent";
   }
 
   Behavior on color {
@@ -101,8 +102,8 @@ PanelWindow {
 
   // Check if bar should be visible on this screen
   readonly property bool barShouldShow: {
-    // Check global bar visibility
-    if (!BarService.isVisible)
+    // Check global bar visibility (includes overview state)
+    if (!BarService.effectivelyVisible)
       return false;
 
     // Check screen-specific configuration
@@ -133,13 +134,58 @@ PanelWindow {
     Region {
       id: barMaskRegion
 
-      x: barPlaceholder.x
-      y: barPlaceholder.y
+      readonly property bool isFramed: Settings.data.bar.barType === "framed"
+      readonly property real barThickness: Style.barHeight
+      readonly property real frameThickness: Settings.data.bar.frameThickness ?? 12
+      readonly property string barPos: Settings.data.bar.position || "top"
 
-      // Set width/height to 0 if bar shouldn't show on this screen (makes region empty)
-      width: root.barShouldShow ? barPlaceholder.width : 0
-      height: root.barShouldShow ? barPlaceholder.height : 0
-      intersection: Intersection.Subtract
+      // Bar / Frame Mask
+      Region {
+        // Mode: Simple or Floating
+        x: barPlaceholder.x
+        y: barPlaceholder.y
+        width: (!barMaskRegion.isFramed && root.barShouldShow) ? barPlaceholder.width : 0
+        height: (!barMaskRegion.isFramed && root.barShouldShow) ? barPlaceholder.height : 0
+        intersection: Intersection.Subtract
+      }
+
+      // Mode: Framed - 4 sides
+      Region {
+        // Top side
+        Region {
+          x: 0
+          y: 0
+          width: (barMaskRegion.isFramed && root.barShouldShow) ? root.width : 0
+          height: (barMaskRegion.isFramed && root.barShouldShow) ? (barMaskRegion.barPos === "top" ? barMaskRegion.barThickness : barMaskRegion.frameThickness) : 0
+          intersection: Intersection.Subtract
+        }
+
+        // Bottom side
+        Region {
+          x: 0
+          y: (barMaskRegion.isFramed && root.barShouldShow) ? (root.height - (barMaskRegion.barPos === "bottom" ? barMaskRegion.barThickness : barMaskRegion.frameThickness)) : 0
+          width: (barMaskRegion.isFramed && root.barShouldShow) ? root.width : 0
+          height: (barMaskRegion.isFramed && root.barShouldShow) ? (barMaskRegion.barPos === "bottom" ? barMaskRegion.barThickness : barMaskRegion.frameThickness) : 0
+          intersection: Intersection.Subtract
+        }
+
+        // Left side
+        Region {
+          x: 0
+          y: 0
+          width: (barMaskRegion.isFramed && root.barShouldShow) ? (barMaskRegion.barPos === "left" ? barMaskRegion.barThickness : barMaskRegion.frameThickness) : 0
+          height: (barMaskRegion.isFramed && root.barShouldShow) ? root.height : 0
+          intersection: Intersection.Subtract
+        }
+
+        // Right side
+        Region {
+          x: (barMaskRegion.isFramed && root.barShouldShow) ? (root.width - (barMaskRegion.barPos === "right" ? barMaskRegion.barThickness : barMaskRegion.frameThickness)) : 0
+          width: (barMaskRegion.isFramed && root.barShouldShow) ? (barMaskRegion.barPos === "right" ? barMaskRegion.barThickness : barMaskRegion.frameThickness) : 0
+          height: (barMaskRegion.isFramed && root.barShouldShow) ? root.height : 0
+          intersection: Intersection.Subtract
+        }
+      }
     }
 
     // Background region for click-to-close - reactive sizing
@@ -192,6 +238,12 @@ PanelWindow {
     AudioPanel {
       id: audioPanel
       objectName: "audioPanel-" + (root.screen?.name || "unknown")
+      screen: root.screen
+    }
+
+    MediaPlayerPanel {
+      id: mediaPlayerPanel
+      objectName: "mediaPlayerPanel-" + (root.screen?.name || "unknown")
       screen: root.screen
     }
 
@@ -273,9 +325,9 @@ PanelWindow {
       screen: root.screen
     }
 
-    WiFiPanel {
-      id: wifiPanel
-      objectName: "wifiPanel-" + (root.screen?.name || "unknown")
+    NetworkPanel {
+      id: networkPanel
+      objectName: "networkPanel-" + (root.screen?.name || "unknown")
       screen: root.screen
     }
 
@@ -313,36 +365,60 @@ PanelWindow {
       // Screen reference
       property ShellScreen screen: root.screen
 
-      // Bar background positioning properties
-      readonly property string barPosition: Settings.data.bar.position || "top"
+      // Bar background positioning properties (per-screen)
+      readonly property string barPosition: Settings.getBarPositionForScreen(screen?.name)
       readonly property bool barIsVertical: barPosition === "left" || barPosition === "right"
+      readonly property bool isFramed: Settings.data.bar.barType === "framed"
+      readonly property real frameThickness: Settings.data.bar.frameThickness ?? 12
       readonly property bool barFloating: Settings.data.bar.floating || false
-      readonly property real barMarginH: barFloating ? Math.floor(Settings.data.bar.marginHorizontal * Style.marginXL) : 0
-      readonly property real barMarginV: barFloating ? Math.floor(Settings.data.bar.marginVertical * Style.marginXL) : 0
+      readonly property real barMarginH: barFloating ? Math.floor(Settings.data.bar.marginHorizontal) : 0
+      readonly property real barMarginV: barFloating ? Math.floor(Settings.data.bar.marginVertical) : 0
+      readonly property real barHeight: Style.getBarHeightForScreen(screen?.name)
+
+      // Auto-hide properties (read by AllBackgrounds for background fade)
+      readonly property bool autoHide: Settings.data.bar.displayMode === "auto_hide"
+      property bool isHidden: false
+
+      Connections {
+        target: BarService
+        function onBarAutoHideStateChanged(screenName, hidden) {
+          if (screenName === barPlaceholder.screen?.name) {
+            barPlaceholder.isHidden = hidden;
+          }
+        }
+      }
 
       // Expose bar dimensions directly on this Item for BarBackground
       // Use screen dimensions directly
       x: {
         if (barPosition === "right")
-          return screen.width - Style.barHeight - barMarginH;
+          return screen.width - barHeight - barMarginH;
+        if (isFramed && !barIsVertical)
+          return frameThickness;
         return barMarginH;
       }
       y: {
         if (barPosition === "bottom")
-          return screen.height - Style.barHeight - barMarginV;
+          return screen.height - barHeight - barMarginV;
+        if (isFramed && barIsVertical)
+          return frameThickness;
         return barMarginV;
       }
       width: {
         if (barIsVertical) {
-          return Style.barHeight;
+          return barHeight;
         }
+        if (isFramed)
+          return screen.width - frameThickness * 2;
         return screen.width - barMarginH * 2;
       }
       height: {
-        if (barIsVertical) {
-          return screen.height - barMarginV * 2;
+        if (!barIsVertical) {
+          return barHeight;
         }
-        return Style.barHeight;
+        if (isFramed)
+          return screen.height - frameThickness * 2;
+        return screen.height - barMarginV * 2;
       }
 
       // Corner states (same as Bar.qml)
@@ -448,6 +524,12 @@ PanelWindow {
   }
 
   Shortcut {
+    sequence: "Enter"
+    enabled: root.isPanelOpen && (PanelService.openedPanel.onEnterPressed !== undefined)
+    onActivated: PanelService.openedPanel.onEnterPressed()
+  }
+
+  Shortcut {
     sequence: "Left"
     enabled: root.isPanelOpen && (PanelService.openedPanel.onLeftPressed !== undefined)
     onActivated: PanelService.openedPanel.onLeftPressed()
@@ -484,6 +566,12 @@ PanelWindow {
   }
 
   Shortcut {
+    sequence: "Ctrl+H"
+    enabled: root.isPanelOpen && (PanelService.openedPanel.onCtrlHPressed !== undefined)
+    onActivated: PanelService.openedPanel.onCtrlHPressed()
+  }
+
+  Shortcut {
     sequence: "Ctrl+J"
     enabled: root.isPanelOpen && (PanelService.openedPanel.onCtrlJPressed !== undefined)
     onActivated: PanelService.openedPanel.onCtrlJPressed()
@@ -493,6 +581,12 @@ PanelWindow {
     sequence: "Ctrl+K"
     enabled: root.isPanelOpen && (PanelService.openedPanel.onCtrlKPressed !== undefined)
     onActivated: PanelService.openedPanel.onCtrlKPressed()
+  }
+
+  Shortcut {
+    sequence: "Ctrl+L"
+    enabled: root.isPanelOpen && (PanelService.openedPanel.onCtrlLPressed !== undefined)
+    onActivated: PanelService.openedPanel.onCtrlLPressed()
   }
 
   Shortcut {

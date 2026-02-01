@@ -11,7 +11,7 @@ Popup {
   id: root
 
   property var screen
-  property color selectedColor: Color.black
+  property color selectedColor: "black"
 
   enum EditMode {
     R,
@@ -113,7 +113,7 @@ Popup {
           family: Settings.data.ui.fontFixed
           pointSize: Style.fontSizeL
           font.weight: Style.fontWeightMedium
-          color: root.selectedColor.r + root.selectedColor.g + root.selectedColor.b > 1.5 ? Color.black : Color.white
+          color: root.selectedColor.r + root.selectedColor.g + root.selectedColor.b > 1.5 ? "black" : "white"
           Layout.alignment: Qt.AlignHCenter
         }
 
@@ -121,7 +121,7 @@ Popup {
           text: "RGB(" + Math.round(root.selectedColor.r * 255) + ", " + Math.round(root.selectedColor.g * 255) + ", " + Math.round(root.selectedColor.b * 255) + ")"
           family: Settings.data.ui.fontFixed
           pointSize: Style.fontSizeM
-          color: root.selectedColor.r + root.selectedColor.g + root.selectedColor.b > 1.5 ? Color.black : Color.white
+          color: root.selectedColor.r + root.selectedColor.g + root.selectedColor.b > 1.5 ? "black" : "white"
           Layout.alignment: Qt.AlignHCenter
         }
 
@@ -396,7 +396,7 @@ Popup {
             NColorSlider {
               id: selectedSlider
               Layout.fillHeight: true
-              rainbowMode: root.editMode === "h"
+              rainbowMode: root.editMode === NColorPickerDialog.EditMode.H
               topColor: {
                 if (rainbowMode)
                   return "transparent";
@@ -603,11 +603,12 @@ Popup {
         }
 
         NLabel {
-          label: I18n.tr("widgets.color-picker.palette.label")
+          label: I18n.tr("widgets.color-picker.palette-label")
           Layout.fillWidth: true
         }
 
         NScrollView {
+          id: paletteScrollView
           Layout.fillWidth: true
           Layout.preferredHeight: Math.min(paletteGrid.implicitHeight, 200)
           verticalPolicy: paletteGrid.implicitHeight > 200 ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
@@ -615,7 +616,7 @@ Popup {
 
           GridLayout {
             id: paletteGrid
-            width: parent.availableWidth
+            width: paletteScrollView.availableWidth
             columns: 17
             columnSpacing: 6
             rowSpacing: 6
@@ -623,7 +624,7 @@ Popup {
             NLabel {
               Layout.columnSpan: 17
               Layout.fillWidth: true
-              description: I18n.tr("widgets.color-picker.palette.theme-colors")
+              description: I18n.tr("widgets.color-picker.palette-theme-colors")
             }
 
             Repeater {
@@ -695,7 +696,7 @@ Popup {
             NLabel {
               Layout.columnSpan: 17
               Layout.fillWidth: true
-              description: I18n.tr("widgets.color-picker.palette.description")
+              description: I18n.tr("widgets.color-picker.palette-description")
             }
 
             Repeater {
@@ -744,7 +745,7 @@ Popup {
 
       NButton {
         id: cancelButton
-        text: I18n.tr("widgets.color-picker.cancel")
+        text: I18n.tr("common.cancel")
         outlined: cancelButton.hovered ? false : true
         onClicked: {
           root.close();
@@ -752,7 +753,7 @@ Popup {
       }
 
       NButton {
-        text: I18n.tr("widgets.color-picker.apply")
+        text: I18n.tr("common.apply")
         icon: "check"
         onClicked: {
           root.colorSelected(root.selectedColor);

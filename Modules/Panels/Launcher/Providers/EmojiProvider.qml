@@ -11,11 +11,19 @@ Item {
   property var launcher: null
   property string iconMode: Settings.data.appLauncher.iconMode
   property bool handleSearch: false
+  property string supportedLayouts: "grid" // Only grid layout for emoji
+  property int preferredGridColumns: 7 // More columns for compact emoji display
+  property real preferredGridCellRatio: 1.15 // Slightly taller than wide to accommodate label
+  property bool supportsAutoPaste: true // Emoji can be auto-pasted
 
   property string selectedCategory: "recent"
-  property bool isBrowsingMode: false
+  property bool showsCategories: true // Default to showing categories
+
+  // Empty state message for category view
+  readonly property string emptyBrowsingMessage: selectedCategory === "recent" ? I18n.tr("launcher.providers.emoji-no-recent") : ""
 
   property var categoryIcons: ({
+                                 "all": "apps",
                                  "recent": "clock",
                                  "people": "user",
                                  "animals": "paw",
@@ -28,20 +36,21 @@ Item {
                                  "flags": "flag"
                                })
 
-  property var categories: ["recent", "people", "animals", "nature", "food", "activity", "travel", "objects", "symbols", "flags"]
+  property var categories: ["all", "recent", "people", "animals", "nature", "food", "activity", "travel", "objects", "symbols", "flags"]
 
   function getCategoryName(category) {
     const names = {
-      "recent": I18n.tr("launcher.categories.emoji.recent"),
-      "people": I18n.tr("launcher.categories.emoji.people"),
-      "animals": I18n.tr("launcher.categories.emoji.animals"),
-      "nature": I18n.tr("launcher.categories.emoji.nature"),
-      "food": I18n.tr("launcher.categories.emoji.food"),
-      "activity": I18n.tr("launcher.categories.emoji.activity"),
-      "travel": I18n.tr("launcher.categories.emoji.travel"),
-      "objects": I18n.tr("launcher.categories.emoji.objects"),
-      "symbols": I18n.tr("launcher.categories.emoji.symbols"),
-      "flags": I18n.tr("launcher.categories.emoji.flags")
+      "all": I18n.tr("launcher.categories.all"),
+      "recent": I18n.tr("launcher.categories.emoji-recent"),
+      "people": I18n.tr("launcher.categories.emoji-people"),
+      "animals": I18n.tr("launcher.categories.emoji-animals"),
+      "nature": I18n.tr("launcher.categories.emoji-nature"),
+      "food": I18n.tr("launcher.categories.emoji-food"),
+      "activity": I18n.tr("launcher.categories.emoji-activity"),
+      "travel": I18n.tr("launcher.categories.emoji-travel"),
+      "objects": I18n.tr("launcher.categories.emoji-objects"),
+      "symbols": I18n.tr("launcher.categories.emoji-symbols"),
+      "flags": I18n.tr("launcher.categories.emoji-flags")
     };
     return names[category] || category;
   }
@@ -114,16 +123,14 @@ Item {
     }
 
     var query = searchText.slice(6).trim();
+    var emojis = [];
 
-    if (query === "") {
-      isBrowsingMode = true;
-      var emojis = EmojiService.getEmojisByCategory(selectedCategory);
-      return emojis.map(formatEmojiEntry);
+    if (query !== "" || selectedCategory === "all") {
+      emojis = EmojiService.search(query);
     } else {
-      isBrowsingMode = false;
-      var emojis = EmojiService.search(query);
-      return emojis.map(formatEmojiEntry);
+      emojis = EmojiService.getEmojisByCategory(selectedCategory);
     }
+    return emojis.map(formatEmojiEntry);
   }
 
   // Format an emoji entry for the results list
@@ -142,7 +149,12 @@ Item {
       "description": description,
       "icon": null,
       "isImage": false,
-      "emojiChar": emojiChar,
+      "displayString": emojiChar,
+      "autoPasteText": emojiChar,
+      "provider": root,
+      "onAutoPaste": function () {
+        EmojiService.recordUsage(emojiChar);
+      },
       "onActivate": function () {
         EmojiService.copy(emojiChar);
         launcher.close();

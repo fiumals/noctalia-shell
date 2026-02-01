@@ -129,7 +129,7 @@ NBox {
     // Border
     Rectangle {
       anchors.fill: parent
-      color: Color.transparent
+      color: "transparent"
       border.color: Style.boxBorderColor
       border.width: Style.borderS
       radius: Style.radiusM
@@ -194,10 +194,10 @@ NBox {
     anchors.topMargin: Style.marginXS
     anchors.leftMargin: Style.marginM
     anchors.rightMargin: Style.marginM
-    height: Style.barHeight
+    height: Style.baseWidgetSize
     visible: MediaService.getAvailablePlayers().length > 1
     radius: Style.radiusM
-    color: Color.transparent
+    color: "transparent"
 
     property var currentPlayer: MediaService.getAvailablePlayers()[MediaService.selectedPlayerIndex]
 
@@ -294,6 +294,7 @@ NBox {
           shadowOpacity: 0.9
           shadowHorizontalOffset: 0
           shadowVerticalOffset: 0
+          shadowColor: Settings.data.colorSchemes.darkMode ? "black" : "white"
         }
 
         ColumnLayout {

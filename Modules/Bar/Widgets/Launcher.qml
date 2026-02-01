@@ -17,9 +17,11 @@ NIconButton {
   property int sectionWidgetsCount: 0
 
   property var widgetMetadata: BarWidgetRegistry.widgetMetadata[widgetId]
+  // Explicit screenName property ensures reactive binding when screen changes
+  readonly property string screenName: screen ? screen.name : ""
   property var widgetSettings: {
-    if (section && sectionWidgetIndex >= 0) {
-      var widgets = Settings.data.bar.widgets[section];
+    if (section && sectionWidgetIndex >= 0 && screenName) {
+      var widgets = Settings.getBarWidgetsForScreen(screenName)[section];
       if (widgets && sectionWidgetIndex < widgets.length) {
         return widgets[sectionWidgetIndex];
       }
@@ -31,9 +33,9 @@ NIconButton {
   readonly property bool usePrimaryColor: (widgetSettings.usePrimaryColor !== undefined) ? widgetSettings.usePrimaryColor : ((widgetMetadata && widgetMetadata.usePrimaryColor !== undefined) ? widgetMetadata.usePrimaryColor : true)
 
   icon: iconName
-  tooltipText: I18n.tr("context-menu.open-launcher")
-  tooltipDirection: BarService.getTooltipDirection()
-  baseSize: Style.capsuleHeight
+  tooltipText: I18n.tr("actions.open-launcher")
+  tooltipDirection: BarService.getTooltipDirection(screenName)
+  baseSize: Style.getCapsuleHeightForScreen(screenName)
   applyUiScale: false
   customRadius: Style.radiusL
   colorBg: Style.capsuleColor
@@ -48,22 +50,20 @@ NIconButton {
 
     model: [
       {
-        "label": I18n.tr("context-menu.launcher-settings"),
+        "label": I18n.tr("actions.launcher-settings"),
         "action": "launcher-settings",
         "icon": "adjustments"
       },
       {
-        "label": I18n.tr("context-menu.widget-settings"),
+        "label": I18n.tr("actions.widget-settings"),
         "action": "widget-settings",
         "icon": "settings"
       }
     ]
 
     onTriggered: action => {
-                   var popupMenuWindow = PanelService.getPopupMenuWindow(screen);
-                   if (popupMenuWindow) {
-                     popupMenuWindow.close();
-                   }
+                   contextMenu.close();
+                   PanelService.closeContextMenu(screen);
 
                    if (action === "launcher-settings") {
                      var panel = PanelService.getPanel("settingsPanel", screen);
@@ -78,10 +78,6 @@ NIconButton {
   onClicked: PanelService.getPanel("launcherPanel", screen)?.toggle()
   onMiddleClicked: PanelService.getPanel("launcherPanel", screen)?.toggle()
   onRightClicked: {
-    var popupMenuWindow = PanelService.getPopupMenuWindow(screen);
-    if (popupMenuWindow) {
-      popupMenuWindow.showContextMenu(contextMenu);
-      contextMenu.openAtItem(root, screen);
-    }
+    PanelService.showContextMenu(contextMenu, root, screen);
   }
 }

@@ -25,7 +25,7 @@ Singleton {
   - Default cache directory: ~/.cache/noctalia
   */
   readonly property alias data: adapter  // Used to access via Settings.data.xxx.yyy
-  readonly property int settingsVersion: 37
+  readonly property int settingsVersion: 46
   readonly property bool isDebug: Quickshell.env("NOCTALIA_DEBUG") === "1"
   readonly property string shellName: "noctalia"
   readonly property string configDir: Quickshell.env("NOCTALIA_CONFIG_DIR") || (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/" + shellName + "/"
@@ -48,9 +48,6 @@ Singleton {
     Quickshell.execDetached(["mkdir", "-p", configDir]);
     Quickshell.execDetached(["mkdir", "-p", cacheDir]);
 
-    // Ensure PAM config file exists in configDir (create once, never override)
-    ensurePamConfig();
-
     // Mark directories as created and trigger file loading
     directoriesCreated = true;
 
@@ -64,7 +61,6 @@ Singleton {
 
     // Patch-in the local default, resolved to user's home
     adapter.general.avatarImage = defaultAvatar;
-    adapter.screenRecorder.directory = defaultVideosDirectory;
     adapter.wallpaper.directory = defaultWallpapersDirectory;
     adapter.ui.fontDefault = Qt.application.font.family;
     adapter.ui.fontFixed = "monospace";
@@ -137,24 +133,10 @@ Singleton {
         root.isFreshInstall = true;
         writeAdapter();
 
-        // Also write to fallback if set
-        if (Quickshell.env("NOCTALIA_SETTINGS_FALLBACK")) {
-          settingsFallbackFileView.writeAdapter();
-        }
-
         // We started without settings, we should open the setupWizard
         root.shouldOpenSetupWizard = true;
       }
     }
-  }
-
-  // Fallback FileView for writing settings to alternate location
-  FileView {
-    id: settingsFallbackFileView
-    path: Quickshell.env("NOCTALIA_SETTINGS_FALLBACK") || ""
-    adapter: Quickshell.env("NOCTALIA_SETTINGS_FALLBACK") ? adapter : null
-    printErrors: false
-    watchChanges: false
   }
 
   // FileView to load default settings for comparison
@@ -188,6 +170,7 @@ Singleton {
 
     // bar
     property JsonObject bar: JsonObject {
+      property string barType: "simple" // "simple", "floating", "framed"
       property string position: "top" // "top", "bottom", "left", or "right"
       property list<string> monitors: [] // holds bar visibility per monitor
       property string density: "default" // "compact", "default", "comfortable"
@@ -201,14 +184,23 @@ Singleton {
 
       // Floating bar settings
       property bool floating: false
-      property real marginVertical: 0.25
-      property real marginHorizontal: 0.25
+      property int marginVertical: 4
+      property int marginHorizontal: 4
+
+      // Framed bar settings
+      property int frameThickness: 8
+      property int frameRadius: 12
 
       // Bar outer corners (inverted/concave corners at bar edges when not floating)
       property bool outerCorners: true
 
-      // Reserves space with compositor
-      property bool exclusive: true
+      // Hide bar/panels when compositor overview is active
+      property bool hideOnOverview: false
+
+      // Auto-hide settings
+      property string displayMode: "always_visible" // "always_visible", "auto_hide"
+      property int autoHideDelay: 500 // ms before hiding after mouse leaves
+      property int autoShowDelay: 150 // ms before showing when mouse enters
 
       // Widget configuration for modular bar system
       property JsonObject widgets
@@ -237,9 +229,6 @@ Singleton {
         ]
         property list<var> right: [
           {
-            "id": "ScreenRecorder"
-          },
-          {
             "id": "Tray"
           },
           {
@@ -259,6 +248,10 @@ Singleton {
           }
         ]
       }
+
+      // Per-screen overrides for position and widgets
+      // Format: [{ "name": "HDMI-1", "position": "left" }, { "name": "DP-1", "position": "bottom", "widgets": {...} }]
+      property list<var> screenOverrides: []
     }
 
     // general
@@ -284,6 +277,12 @@ Singleton {
       property int shadowOffsetY: 3
       property string language: ""
       property bool allowPanelsOnScreenWithoutBar: true
+      property bool showChangelogOnStartup: true
+      property bool telemetryEnabled: false
+      property bool enableLockScreenCountdown: true
+      property int lockScreenCountdownDuration: 10000
+      property bool autoStartAuth: false
+      property bool allowPasswordWithFprintd: false
     }
 
     // ui
@@ -296,6 +295,13 @@ Singleton {
       property real panelBackgroundOpacity: 0.93
       property bool panelsAttachedToBar: true
       property string settingsPanelMode: "attached" // "centered", "attached", "window"
+      // Details view mode persistence for panels
+      property string wifiDetailsViewMode: "grid"   // "grid" or "list"
+      property string bluetoothDetailsViewMode: "grid" // "grid" or "list"
+      // Persist the last-opened view for the unified network panel: "wifi" | "ethernet"
+      property string networkPanelView: "wifi"
+      // Bluetooth available devices list: hide items without a name
+      property bool bluetoothHideUnnamedDevices: false
       property bool boxBorderEnabled: false
     }
 
@@ -311,6 +317,8 @@ Singleton {
       property bool showCalendarWeather: true
       property bool analogClockInCalendar: false
       property int firstDayOfWeek: -1 // -1 = auto (use locale), 0 = Sunday, 1 = Monday, 6 = Saturday
+      property bool hideWeatherTimezone: false
+      property bool hideWeatherCityName: false
     }
 
     // calendar
@@ -325,28 +333,10 @@ Singleton {
           "enabled": true
         },
         {
-          "id": "timer-card",
-          "enabled": true
-        },
-        {
           "id": "weather-card",
           "enabled": true
         }
       ]
-    }
-
-    // screen recorder
-    property JsonObject screenRecorder: JsonObject {
-      property string directory: ""
-      property int frameRate: 60
-      property string audioCodec: "opus"
-      property string videoCodec: "h264"
-      property string quality: "very_high"
-      property string colorRange: "limited"
-      property bool showCursor: true
-      property bool copyToClipboard: false
-      property string audioSource: "default_output"
-      property string videoSource: "portal"
     }
 
     // wallpaper
@@ -356,13 +346,14 @@ Singleton {
       property string directory: ""
       property list<var> monitorDirectories: []
       property bool enableMultiMonitorDirectories: false
-      property bool recursiveSearch: false
+      property bool showHiddenFiles: false
+      property string viewMode: "single" // "single" | "recursive" | "browse"
       property bool setWallpaperOnAllMonitors: true
       property string fillMode: "crop"
       property color fillColor: "#000000"
       property bool useSolidColor: false
       property color solidColor: "#1a1a2e"
-      property bool randomEnabled: false // Deprecated: use wallpaperChangeMode instead
+      property bool automationEnabled: false
       property string wallpaperChangeMode: "random" // "random" or "alphabetical"
       property int randomIntervalSec: 300 // 5 min
       property int transitionDuration: 1500 // 1500 ms
@@ -387,13 +378,16 @@ Singleton {
     // applauncher
     property JsonObject appLauncher: JsonObject {
       property bool enableClipboardHistory: false
+      property bool autoPasteClipboard: false
       property bool enableClipPreview: true
-      // Position: center, top_left, top_right, bottom_left, bottom_right, bottom_center, top_center
-      property string position: "center"
-      property list<string> pinnedExecs: []
+      property bool clipboardWrapText: true
+      property string clipboardWatchTextCommand: "wl-paste --type text --watch cliphist store"
+      property string clipboardWatchImageCommand: "wl-paste --type image --watch cliphist store"
+      property string position: "center"  // Position: center, top_left, top_right, bottom_left, bottom_right, bottom_center, top_center
+      property list<string> pinnedApps: []
       property bool useApp2Unit: false
       property bool sortByMostUsed: true
-      property string terminalCommand: "xterm -e"
+      property string terminalCommand: "alacritty -e"
       property bool customLaunchPrefixEnabled: false
       property string customLaunchPrefix: ""
       // View mode: "list" or "grid"
@@ -401,7 +395,9 @@ Singleton {
       property bool showCategories: true
       // Icon mode: "tabler" or "native"
       property string iconMode: "tabler"
-      property bool showIconBackground: true
+      property bool showIconBackground: false
+      property bool enableSettingsSearch: true
+      property bool enableWindowsSearch: true
       property bool ignoreMouseInput: false
       property string screenshotAnnotationTool: ""
     }
@@ -415,16 +411,16 @@ Singleton {
       shortcuts: JsonObject {
         property list<var> left: [
           {
-            "id": "WiFi"
+            "id": "Network"
           },
           {
             "id": "Bluetooth"
           },
           {
-            "id": "ScreenRecorder"
+            "id": "WallpaperSelector"
           },
           {
-            "id": "WallpaperSelector"
+            "id": "NoctaliaPerformance"
           }
         ]
         property list<var> right: [
@@ -480,6 +476,8 @@ Singleton {
       property int gpuCriticalThreshold: 90
       property int memWarningThreshold: 80
       property int memCriticalThreshold: 90
+      property int swapWarningThreshold: 80
+      property int swapCriticalThreshold: 90
       property int diskWarningThreshold: 80
       property int diskCriticalThreshold: 90
       property int cpuPollingInterval: 3000
@@ -487,7 +485,7 @@ Singleton {
       property int gpuPollingInterval: 3000
       property bool enableDgpuMonitoring: false // Opt-in: reading dGPU sysfs/nvidia-smi wakes it from D3cold, draining battery
       property int memPollingInterval: 3000
-      property int diskPollingInterval: 3000
+      property int diskPollingInterval: 30000
       property int networkPollingInterval: 3000
       property int loadAvgPollingInterval: 3000
       property bool useCustomColors: false
@@ -499,6 +497,7 @@ Singleton {
     // dock
     property JsonObject dock: JsonObject {
       property bool enabled: true
+      property string position: "bottom" // "top", "bottom", "left", "right"
       property string displayMode: "auto_hide" // "always_visible", "auto_hide", "exclusive"
       property real backgroundOpacity: 1.0
       property real floatingRatio: 1.0
@@ -587,6 +586,7 @@ Singleton {
         property string lowSoundFile: ""
         property string excludedApps: "discord,firefox,chrome,chromium,edge"
       }
+      property bool enableMediaToast: false
     }
 
     // on-screen display
@@ -596,7 +596,7 @@ Singleton {
       property int autoHideMs: 2000
       property bool overlayLayer: true
       property real backgroundOpacity: 1.0
-      property list<var> enabledTypes: [OSD.Type.Volume, OSD.Type.InputVolume, OSD.Type.Brightness, OSD.Type.CustomText]
+      property list<var> enabledTypes: [OSD.Type.Volume, OSD.Type.InputVolume, OSD.Type.Brightness]
       property list<string> monitors: [] // holds osd visibility per monitor
     }
 
@@ -608,7 +608,7 @@ Singleton {
       property string visualizerType: "linear"
       property list<string> mprisBlacklist: []
       property string preferredPlayer: ""
-      property string externalMixer: "pwvucontrol || pavucontrol"
+      property bool volumeFeedback: false
     }
 
     // brightness
@@ -625,37 +625,15 @@ Singleton {
       property string schedulingMode: "off"
       property string manualSunrise: "06:30"
       property string manualSunset: "18:30"
-      property string matugenSchemeType: "scheme-fruit-salad"
-      property bool generateTemplatesForPredefined: true
+      property string generationMethod: "tonal-spot"
+      property string monitorForColors: ""
     }
 
     // templates toggles
     property JsonObject templates: JsonObject {
-      property bool gtk: false
-      property bool qt: false
-      property bool kcolorscheme: false
-      property bool alacritty: false
-      property bool kitty: false
-      property bool ghostty: false
-      property bool foot: false
-      property bool wezterm: false
-      property bool fuzzel: false
-      property bool discord: false
-      property bool pywalfox: false
-      property bool vicinae: false
-      property bool walker: false
-      property bool code: false
-      property bool spicetify: false
-      property bool telegram: false
-      property bool cava: false
-      property bool yazi: false
-      property bool emacs: false
-      property bool niri: false
-      property bool hyprland: false
-      property bool mango: false
-      property bool zed: false
-      property bool helix: false
-      property bool enableUserTemplates: false
+      property list<var> activeTemplates: []
+      // Format: [{ "id": "gtk", "enabled": true }, { "id": "qt", "enabled": true }, ...]
+      property bool enableUserTheming: false
     }
 
     // night light
@@ -678,6 +656,8 @@ Singleton {
       property string screenUnlock: ""
       property string performanceModeEnabled: ""
       property string performanceModeDisabled: ""
+      property string startup: ""
+      property string session: ""
     }
 
     // desktop widgets
@@ -771,13 +751,179 @@ Singleton {
   }
 
   // -----------------------------------------------------
+  // Helper to find a screen override entry by name in the array
+  // Format: [{ "name": "HDMI-A-1", "position": "left" }, ...]
+  // Note: QML's list<var> is not a true JS array, so we check for .length instead of Array.isArray()
+  function _findScreenOverride(screenName) {
+    var overrides = data.bar.screenOverrides;
+    if (!screenName || !overrides || overrides.length === undefined) {
+      return null;
+    }
+    for (var i = 0; i < overrides.length; i++) {
+      if (overrides[i] && overrides[i].name === screenName) {
+        return overrides[i];
+      }
+    }
+    return null;
+  }
+
+  // Helper to find index of a screen override entry
+  function _findScreenOverrideIndex(screenName) {
+    var overrides = data.bar.screenOverrides;
+    if (!screenName || !overrides || overrides.length === undefined) {
+      return -1;
+    }
+    for (var i = 0; i < overrides.length; i++) {
+      if (overrides[i] && overrides[i].name === screenName) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  // -----------------------------------------------------
+  // Check if a screen's overrides are enabled
+  // Returns true if enabled flag is true or undefined (backward compat)
+  // Returns false only if enabled is explicitly false
+  function isScreenOverrideEnabled(screenName) {
+    var override = _findScreenOverride(screenName);
+    if (!override) {
+      return false;
+    }
+    return override.enabled !== false;
+  }
+
+  // -----------------------------------------------------
+  // Get effective bar position for a screen (with inheritance)
+  // If the screen has a position override and overrides are enabled, use it; otherwise use global default
+  function getBarPositionForScreen(screenName) {
+    var override = _findScreenOverride(screenName);
+    if (override && override.enabled !== false && override.position !== undefined) {
+      return override.position;
+    }
+    return data.bar.position || "top";
+  }
+
+  // -----------------------------------------------------
+  // Get effective bar widgets for a screen (with inheritance)
+  // If the screen has widget overrides and overrides are enabled, use them; otherwise use global defaults
+  function getBarWidgetsForScreen(screenName) {
+    var override = _findScreenOverride(screenName);
+    if (override && override.enabled !== false && override.widgets !== undefined) {
+      return override.widgets;
+    }
+    return data.bar.widgets;
+  }
+
+  // -----------------------------------------------------
+  // Get effective bar density for a screen (with inheritance)
+  // If the screen has a density override and overrides are enabled, use it; otherwise use global default
+  function getBarDensityForScreen(screenName) {
+    var override = _findScreenOverride(screenName);
+    if (override && override.enabled !== false && override.density !== undefined) {
+      return override.density;
+    }
+    return data.bar.density || "default";
+  }
+
+  // -----------------------------------------------------
+  // Check if a screen has any overrides, optionally for a specific property
+  function hasScreenOverride(screenName, property) {
+    var override = _findScreenOverride(screenName);
+    if (!override) {
+      return false;
+    }
+    if (property) {
+      return override[property] !== undefined;
+    }
+    // Check if screen has any override property (besides "name")
+    var keys = Object.keys(override);
+    return keys.length > 1 || (keys.length === 1 && keys[0] !== "name");
+  }
+
+  // -----------------------------------------------------
+  // Get the screen override entry directly (for in-place modifications)
+  // Returns the actual entry object from the array, not a copy
+  function getScreenOverrideEntry(screenName) {
+    return _findScreenOverride(screenName);
+  }
+
+  // -----------------------------------------------------
+  // Set a per-screen override
+  function setScreenOverride(screenName, property, value) {
+    if (!screenName)
+      return;
+
+    var overrides = JSON.parse(JSON.stringify(data.bar.screenOverrides || []));
+    if (overrides.length === undefined) {
+      overrides = [];
+    }
+
+    var index = -1;
+    for (var i = 0; i < overrides.length; i++) {
+      if (overrides[i] && overrides[i].name === screenName) {
+        index = i;
+        break;
+      }
+    }
+
+    if (index === -1) {
+      // Create new entry
+      var newEntry = {
+        "name": screenName
+      };
+      newEntry[property] = value;
+      overrides.push(newEntry);
+    } else {
+      // Update existing entry
+      overrides[index][property] = value;
+    }
+    data.bar.screenOverrides = overrides;
+  }
+
+  // -----------------------------------------------------
+  // Clear a per-screen override (revert to global default)
+  // If property is null, clears all overrides for that screen
+  function clearScreenOverride(screenName, property) {
+    if (!screenName)
+      return;
+
+    var overrides = data.bar.screenOverrides;
+    if (!overrides || overrides.length === undefined) {
+      return;
+    }
+
+    overrides = JSON.parse(JSON.stringify(overrides));
+
+    var index = -1;
+    for (var i = 0; i < overrides.length; i++) {
+      if (overrides[i] && overrides[i].name === screenName) {
+        index = i;
+        break;
+      }
+    }
+
+    if (index === -1) {
+      return;
+    }
+
+    if (property) {
+      delete overrides[index][property];
+      // Remove screen entry if only "name" remains
+      var keys = Object.keys(overrides[index]);
+      if (keys.length <= 1 && (keys.length === 0 || keys[0] === "name")) {
+        overrides.splice(index, 1);
+      }
+    } else {
+      overrides.splice(index, 1);
+    }
+    data.bar.screenOverrides = overrides;
+  }
+
+  // -----------------------------------------------------
   // Public function to trigger immediate settings saving
   function saveImmediate() {
     settingsFileView.writeAdapter();
-    // Write to fallback location if set
-    if (Quickshell.env("NOCTALIA_SETTINGS_FALLBACK")) {
-      settingsFallbackFileView.writeAdapter();
-    }
     root.settingsSaved(); // Emit signal after saving
   }
 
@@ -889,7 +1035,7 @@ Singleton {
     // -----------------
     const sections = ["left", "center", "right"];
 
-    // 1. remove any non existing widget type
+    // 1. remove any non existing bar widget type
     var removedWidget = false;
     for (var s = 0; s < sections.length; s++) {
       const sectionName = sections[s];
@@ -898,7 +1044,7 @@ Singleton {
       for (var i = widgets.length - 1; i >= 0; i--) {
         var widget = widgets[i];
         if (!BarWidgetRegistry.hasWidget(widget.id)) {
-          Logger.w(`Settings`, `!!! Deleted invalid widget ${widget.id} !!!`);
+          Logger.w(`Settings`, `!!! Deleted invalid bar widget ${widget.id} !!!`);
           widgets.splice(i, 1);
           removedWidget = true;
         }
@@ -906,7 +1052,40 @@ Singleton {
     }
 
     // -----------------
-    // 2. upgrade user widget settings
+    // 2. remove any non existing control center widget type
+    const ccSections = ["left", "right"];
+    for (var s = 0; s < ccSections.length; s++) {
+      const sectionName = ccSections[s];
+      const shortcuts = adapter.controlCenter.shortcuts[sectionName];
+      for (var i = shortcuts.length - 1; i >= 0; i--) {
+        var shortcut = shortcuts[i];
+        if (!ControlCenterWidgetRegistry.hasWidget(shortcut.id)) {
+          Logger.w(`Settings`, `!!! Deleted invalid control center widget ${shortcut.id} !!!`);
+          shortcuts.splice(i, 1);
+          removedWidget = true;
+        }
+      }
+    }
+
+    // -----------------
+    // 3. remove any non existing desktop widget type
+    const monitorWidgets = adapter.desktopWidgets.monitorWidgets;
+    for (var m = 0; m < monitorWidgets.length; m++) {
+      const monitor = monitorWidgets[m];
+      if (!monitor.widgets)
+        continue;
+      for (var i = monitor.widgets.length - 1; i >= 0; i--) {
+        var desktopWidget = monitor.widgets[i];
+        if (!DesktopWidgetRegistry.hasWidget(desktopWidget.id)) {
+          Logger.w(`Settings`, `!!! Deleted invalid desktop widget ${desktopWidget.id} !!!`);
+          monitor.widgets.splice(i, 1);
+          removedWidget = true;
+        }
+      }
+    }
+
+    // -----------------
+    // 4. upgrade user widget settings
     for (var s = 0; s < sections.length; s++) {
       const sectionName = sections[s];
       for (var i = 0; i < adapter.bar.widgets[sectionName].length; i++) {
@@ -925,56 +1104,6 @@ Singleton {
   }
 
   // -----------------------------------------------------
-  // Ensure PAM password.conf exists in configDir (create once, never override)
-  function ensurePamConfig() {
-    var pamConfigDir = configDir + "pam";
-    var pamConfigFile = pamConfigDir + "/password.conf";
-
-    // Check if file already exists
-    fileCheckPamProcess.command = ["sh", "-c", `grep -q '^ID=nixos' /etc/os-release || test -f ${pamConfigFile}`];
-    fileCheckPamProcess.running = true;
-  }
-
-  function doCreatePamConfig() {
-    var pamConfigDir = configDir + "pam";
-    var pamConfigFile = pamConfigDir + "/password.conf";
-    var pamConfigDirEsc = pamConfigDir.replace(/'/g, "'\\''");
-    var pamConfigFileEsc = pamConfigFile.replace(/'/g, "'\\''");
-
-    // Ensure directory exists
-    Quickshell.execDetached(["mkdir", "-p", pamConfigDir]);
-
-    // Generate the PAM config file content
-    var configContent = "#auth sufficient pam_fprintd.so max-tries=1\n";
-    configContent += "# only uncomment this if you have a fingerprint reader\n";
-    configContent += "auth required pam_unix.so\n";
-
-    // Write the config file using heredoc to avoid escaping issues
-    var script = `cat > '${pamConfigFileEsc}' << 'EOF'\n`;
-    script += configContent;
-    script += "EOF\n";
-    Quickshell.execDetached(["sh", "-c", script]);
-
-    Logger.d("Settings", "PAM config file created at:", pamConfigFile);
-  }
-
-  // Process for checking if PAM config file exists
-  Process {
-    id: fileCheckPamProcess
-    running: false
-
-    onExited: function (exitCode) {
-      if (exitCode === 0) {
-        // File exists, skip creation
-        Logger.d("Settings", "On NixOS or PAM config file already exists, skipping creation");
-      } else {
-        // File doesn't exist, create it
-        doCreatePamConfig();
-      }
-    }
-  }
-
-  // -----------------------------------------------------
   // Function to clean up deprecated user/custom bar widgets settings
   function upgradeWidget(widget) {
     // Backup the widget definition before altering
@@ -985,7 +1114,7 @@ Singleton {
 
     // Delete deprecated user settings from the wiget
     for (const k of Object.keys(widget)) {
-      if (k === "id" || k === "allowUserSettings") {
+      if (k === "id") {
         continue;
       }
       if (!keys.includes(k)) {
@@ -996,7 +1125,7 @@ Singleton {
     // Inject missing default setting (metaData) from BarWidgetRegistry
     for (var i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (k === "id" || k === "allowUserSettings") {
+      if (k === "id") {
         continue;
       }
 

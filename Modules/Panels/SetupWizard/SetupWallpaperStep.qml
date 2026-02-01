@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
-import "../../../Helpers/FuzzySort.js" as FuzzySort
 import qs.Commons
 import qs.Services.UI
 import qs.Widgets
@@ -136,15 +135,16 @@ ColumnLayout {
   // Wallpaper gallery strip
   Item {
     Layout.fillWidth: true
-    Layout.preferredHeight: 88
+    Layout.preferredHeight: 92
     visible: filteredWallpapers.length > 0
 
-    ScrollView {
+    NScrollView {
       id: galleryScroll
       anchors.fill: parent
-      clip: true
-      ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-      ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+      horizontalPolicy: ScrollBar.AsNeeded
+      verticalPolicy: ScrollBar.AlwaysOff
+      showGradientMasks: false
+      reserveScrollbarSpace: false
 
       // Enable vertical mouse wheel to scroll the horizontal strip by moving contentX
       WheelHandler {
@@ -326,11 +326,11 @@ ColumnLayout {
 
     NTextInputButton {
       id: wallpaperPathInput
-      label: I18n.tr("setup.wallpaper.dir.label")
-      description: I18n.tr("setup.wallpaper.dir.description")
+      label: I18n.tr("setup.wallpaper.dir-label")
+      description: I18n.tr("setup.wallpaper.dir-description")
       text: selectedDirectory
       buttonIcon: "folder-open"
-      buttonTooltip: I18n.tr("setup.wallpaper.dir.browse")
+      buttonTooltip: I18n.tr("setup.wallpaper.dir-browse")
       Layout.fillWidth: true
       onInputEditingFinished: {
         selectedDirectory = text;
@@ -426,7 +426,7 @@ ColumnLayout {
   NFilePicker {
     id: directoryPicker
     selectionMode: "folders"
-    title: I18n.tr("setup.wallpaper.dir.select-title")
+    title: I18n.tr("setup.wallpaper.dir-select-title")
     initialPath: selectedDirectory || Quickshell.env("HOME") + "/Pictures"
     onAccepted: paths => {
                   if (paths.length > 0) {
