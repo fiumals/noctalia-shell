@@ -15,6 +15,8 @@ import qs.Widgets
 SmartPanel {
   id: root
 
+  panelBackgroundColor: Color.transparent
+
   readonly property bool previewActive: !!(searchText && searchText.startsWith(">clip") && Settings.data.appLauncher.enableClipPreview && ClipboardService.items && ClipboardService.items.length > 0 && selectedIndex >= 0 && results && results[selectedIndex] && results[selectedIndex].clipboardId)
 
   // Panel configuration
@@ -24,8 +26,8 @@ SmartPanel {
 
   preferredWidth: totalBaseWidth
   preferredHeight: Math.round(600 * Style.uiScaleRatio)
-  preferredWidthRatio: 0.3
-  preferredHeightRatio: 0.5
+  preferredWidthRatio: 1.0
+  preferredHeightRatio: 1.0
 
   // Positioning
   readonly property string panelPosition: {
@@ -74,7 +76,7 @@ SmartPanel {
 
   // Target columns, but actual columns may vary based on available width
   // Account for NTabBar margins to match category tabs width
-  readonly property int targetGridColumns: 5
+  readonly property int targetGridColumns: 9
   readonly property int gridContentWidth: listPanelWidth - (2 * Style.marginXS)
   readonly property int gridCellSize: Math.floor((gridContentWidth - ((targetGridColumns - 1) * Style.marginS)) / targetGridColumns)
 
@@ -924,7 +926,7 @@ SmartPanel {
 
               width: resultsList.width
               implicitHeight: entryHeight
-              color: entry.isSelected ? Color.mHover : Color.mSurface
+              color: entry.isSelected ? Color.mHover : Color.transparent
 
               Behavior on color {
                 ColorAnimation {
@@ -953,7 +955,7 @@ SmartPanel {
                     Rectangle {
                       anchors.fill: parent
                       radius: Style.radiusM
-                      color: Color.mSurfaceVariant
+                      color: Color.transparent
                       visible: Settings.data.appLauncher.showIconBackground && !modelData.isImage && !modelData.emojiChar
                     }
 
@@ -1310,7 +1312,7 @@ SmartPanel {
                 id: gridEntry
                 anchors.fill: parent
                 anchors.margins: Style.marginXXS
-                color: gridEntryContainer.isSelected ? Color.mHover : Color.mSurface
+                color: gridEntryContainer.isSelected ? Color.mHover : Color.transparent
 
                 Behavior on color {
                   ColorAnimation {
@@ -1349,7 +1351,7 @@ SmartPanel {
                     Rectangle {
                       anchors.fill: parent
                       radius: Style.radiusM
-                      color: Color.mSurfaceVariant
+                      color: Color.transparent
                       visible: Settings.data.appLauncher.showIconBackground && !modelData.isImage && !modelData.emojiChar
                     }
 
