@@ -37,7 +37,7 @@ Item {
 
   // animation controls
   property real waitBeforeScrolling: 1000
-  property real scrollCycleDuration: Math.max(4000, root.text.length * 120) * 4.0
+  property real scrollCycleDuration: Math.max(4000, root.text.length * 120)
   property real resettingDuration: 300
 
   readonly property real contentWidth: {

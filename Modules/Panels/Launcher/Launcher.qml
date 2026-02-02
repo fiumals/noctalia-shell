@@ -1436,7 +1436,7 @@ SmartPanel {
                 id: gridEntry
                 anchors.fill: parent
                 anchors.margins: Style.marginXXS
-                color: gridEntryContainer.isSelected ? Color.mHover : Color.transparent
+                color: gridEntryContainer.isSelected ? Color.mHover : Color.mSurface
 
                 Behavior on color {
                   ColorAnimation {
