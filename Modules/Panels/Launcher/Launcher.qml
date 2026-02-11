@@ -31,8 +31,8 @@ SmartPanel {
 
   preferredWidth: totalBaseWidth
   preferredHeight: Math.round(600 * Style.uiScaleRatio)
-  preferredWidthRatio: 0.8
-  preferredHeightRatio: 0.8
+  preferredWidthRatio: 0.9
+  preferredHeightRatio: 0.9
 
   // Positioning
   readonly property string screenBarPosition: Settings.getBarPositionForScreen(screen?.name)
@@ -174,7 +174,7 @@ SmartPanel {
     if (currentProvider && currentProvider.preferredGridColumns) {
       return currentProvider.preferredGridColumns;
     }
-    return 5;
+    return 9;
   }
   readonly property int gridContentWidth: listPanelWidth - (2 * Style.marginXS)
   readonly property int gridCellSize: Math.floor((gridContentWidth - ((targetGridColumns - 1) * Style.marginS)) / targetGridColumns)
