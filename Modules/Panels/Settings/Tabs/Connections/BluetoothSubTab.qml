@@ -169,11 +169,11 @@ Item {
 
         NDivider {
           Layout.fillWidth: true
-          visible: BluetoothService.enabled
+          visible: BluetoothService.enabled && isDiscoverable
         }
 
         NText {
-          visible: (BluetoothService.enabled && isDiscoverable)
+          visible: BluetoothService.enabled && isDiscoverable
           Layout.fillWidth: true
           text: I18n.tr("panels.connections.bluetooth-discoverable", {
                           hostName: HostService.hostName
@@ -208,10 +208,8 @@ Item {
         anchors.rightMargin: showOnlyLists ? Style.marginM : 0
         spacing: Style.marginM
 
-        NText {
-          text: I18n.tr("bluetooth.panel.connected-devices")
-          pointSize: Style.fontSizeL
-          font.weight: Style.fontWeightBold
+        NLabel {
+          label: I18n.tr("bluetooth.panel.connected-devices")
           Layout.fillWidth: true
           Layout.leftMargin: Style.marginS
         }
@@ -240,10 +238,8 @@ Item {
         anchors.rightMargin: showOnlyLists ? Style.marginM : 0
         spacing: Style.marginM
 
-        NText {
-          text: I18n.tr("bluetooth.panel.paired-devices")
-          pointSize: Style.fontSizeL
-          font.weight: Style.fontWeightBold
+        NLabel {
+          label: I18n.tr("bluetooth.panel.paired-devices")
           Layout.fillWidth: true
           Layout.leftMargin: Style.marginS
         }
@@ -644,7 +640,7 @@ Item {
     }
   }
 
-  // PIN Authentication Overlay
+  // PIN Authentication Overlay (This part needs some love :P)
   Rectangle {
     id: pinOverlay
     visible: !root.showOnlyLists && BluetoothService.pinRequired

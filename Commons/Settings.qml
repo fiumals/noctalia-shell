@@ -299,6 +299,7 @@ Singleton {
         property list<string> keyEscape: ["Esc"]
         property list<string> keyRemove: ["Del"]
       }
+      property bool reverseScroll: false
     }
 
     // ui
@@ -522,6 +523,7 @@ Singleton {
       property bool enabled: true
       property string position: "bottom" // "top", "bottom", "left", "right"
       property string displayMode: "auto_hide" // "always_visible", "auto_hide", "exclusive"
+      property string dockType: "floating" // "floating", "static"
       property real backgroundOpacity: 1.0
       property real floatingRatio: 1.0
       property real size: 1
@@ -534,6 +536,8 @@ Singleton {
       property bool inactiveIndicators: false
       property double deadOpacity: 0.6
       property real animationSpeed: 1.0 // Speed multiplier for hide/show animations (0.1 = slowest, 2.0 = fastest)
+      property bool sitOnFrame: false
+      property bool showFrameIndicator: true
     }
 
     // network
@@ -594,6 +598,7 @@ Singleton {
     // notifications
     property JsonObject notifications: JsonObject {
       property bool enabled: true
+      property bool enableMarkdown: false
       property string density: "default" // "default", "compact"
       property list<string> monitors: [] // holds notifications visibility per monitor
       property string location: "top_right"
@@ -603,6 +608,7 @@ Singleton {
       property int lowUrgencyDuration: 3
       property int normalUrgencyDuration: 8
       property int criticalUrgencyDuration: 15
+      property bool clearDismissed: true
       property JsonObject saveToHistory: JsonObject {
         property bool low: true
         property bool normal: true
@@ -649,6 +655,7 @@ Singleton {
       property int brightnessStep: 5
       property bool enforceMinimum: true
       property bool enableDdcSupport: false
+      property bool syncAllMonitors: false
     }
 
     property JsonObject colorSchemes: JsonObject {
@@ -862,6 +869,17 @@ Singleton {
       return override.density;
     }
     return data.bar.density || "default";
+  }
+
+  // -----------------------------------------------------
+  // Get effective bar display mode for a screen (with inheritance)
+  // If the screen has a displayMode override and overrides are enabled, use it; otherwise use global default
+  function getBarDisplayModeForScreen(screenName) {
+    var override = _findScreenOverride(screenName);
+    if (override && override.enabled !== false && override.displayMode !== undefined) {
+      return override.displayMode;
+    }
+    return data.bar.displayMode || "always_visible";
   }
 
   // -----------------------------------------------------
